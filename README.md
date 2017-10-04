@@ -1,1 +1,3 @@
-#wateruse-waterbudget
+# Closing watershed-scale water budgets
+
+A simple water budget includes precipitation, streamflow, change in storage, evapotranspiration, and residuals dP = Q + ET + S + e. It is essential to include the human component–namely consumptive water use–to close the water budget and reduce the magnitude of the residuals. The largest withdraw volumes are for public supply, irrigation, self-supplied industrial, and thermoelectric. This project proposes to lay the groundwork for incorporating water-use data into national-scale water budgets.  
