@@ -45,3 +45,11 @@ wu_coords <- hold_deg
 
 write_csv(data.frame(wu_coords@coords),"data/ga_nwis/coords/wu_coords.csv")
 
+library(sf)
+acf_huc <- st_read("data/acf_hucs/acf_wbd.shp") 
+
+gw <- st_read("data/acf_gw_model/ActGrid_clean.shp") %>%
+  st_transform(crs=4269) %>%
+  st_write("data/acf_gw_model/two/ActGrid_clean.shp")
+
+plot(acf_huc["HUC_12"]); plot(gw["col"], add=T)
