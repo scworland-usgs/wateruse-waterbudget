@@ -1,9 +1,10 @@
 
 library(raster)
-library(sp)
+library(sf)
 library(rgdal)
 library(tidyverse)
 library(feather)
+library(rgdal)
 
 setwd("~/Documents/wu_waterbudget")
 
@@ -14,10 +15,16 @@ file_list <- gsub("\\..*","",all_files)
 # Function to extract relevant data
 ga_irr <- NULL
 for (i in 1:length(file_list)){
+  
+  print(paste0("loading ",i," out of ",length(file_list)))
+  
   options(warn=-1) # turn off warnings
   fname=file_list[i] # grab first file name
-  shpfile <- readOGR(path.expand("data/ga_irrigation/acf_agwateruse_2008_2012_shapefiles"), fname)
-  data <- shpfile@data
+  shpfile <- st_read(path.expand("data/ga_irrigation/acf_agwateruse_2008_2012_shapefiles"), fname)
+  coordinates <- st_coordinates(shpfile)
+  year <- parse_number(fname)
+  month <- substr(fname,1,3)
+  data <- shpfile %>% st_set_geometry(NULL)
   
   if("Acres" %in% names(data)){
     depth <- select(data,contains("irrig"))
@@ -29,10 +36,7 @@ for (i in 1:length(file_list)){
     source <- Filter(function(d) any(levels(d)=="G"), data)
   }
   
-  coords <- coordinates(shpfile)
-  year=parse_number(fname)
-  month = substr(fname,1,3)
-  out <- data.frame(year,month,coords,source,depth,acres) %>% 
+  out <- data.frame(year,month,coordinates,source,depth,acres) %>% 
     setNames(c("year","month","lon","lat","source","depth_in","acres"))
   
   ga_irr <- rbind(ga_irr,out) # append dataframes
@@ -40,64 +44,49 @@ for (i in 1:length(file_list)){
 }
 
 # write_feather(ga_irr,"data/GA_irrigation/ga_irr.feather")
-ga_irr <- read_feather("data/GA_irrigation/ga_irr.feather") %>%
+ga_irr <- read_feather("data/GA_irrigation/ga_irr.feather") 
+
+# load ACF study area
+clipped_hucs <- st_read("data/clipped_hucs/clipped_hucs.shp") 
+
+# CRS from shapefile Jamie Painter provided
+irr_crs <- "+proj=aea +lat_1=29.5 +lat_2=45.5 +lat_0=23 +lon_0=-83.5 +x_0=0 +y_0=0 
++datum=NAD83 +units=m +no_defs +ellps=GRS80 +towgs84=0,0,0"
+
+# reproject data and find points in ACF study area
+ga_irr_sf <- st_as_sf(ga_irr, coords=c("lon","lat"),crs=irr_crs) %>%
+  st_transform(crs=st_crs(clipped_hucs)) %>%
+  st_intersection(clipped_hucs) 
+
+# clean up and export
+irrigation <- ga_irr_sf %>%
   mutate(depth_in = ifelse(depth_in==-9999,NA,depth_in),
-         mgal = ((1/12)*depth_in)*(acres*43560)*7.48e-6) %>%
-  na.omit() %>%
-  group_by(lon,lat,source,year) %>%
-  summarize(mgal=sum(mgal))
-  
+         mgal = ((1/12*(depth_in)*(acres*43560))*7.48052)/1e6) %>%
+  group_by(HUC_10,year) %>%
+  summarize(mgal = sum(mgal, na.rm=T)) %>%
+  st_set_geometry(NULL)
 
-# Add HUC data ----
+# plot time series
+ggplot(irrigation, aes(year,mgal,color=HUC_10)) +
+  geom_line(show.legend=F) +
+  geom_point(show.legend=F) +
+  # facet_wrap(~HUC_10) +
+  scale_color_viridis_d(begin=0.0,end=0.9,option="C") +
+  ggtitle('Irrigation from 2008-2012',
+          subtitle="Each line represents an individual HUC 10") +
+  theme_bw() 
 
-# load H12 shape file and subset for GA and AL,GA
-huc12 <- readOGR(path.expand("data/nhd_wbd"), "WBDSnapshot_National")
-ga12 <- base::subset(huc12, STATES %in% c("GA","AL,GA","FL,GA","AL,FL,GA"))
-rm(huc12)
+# lon = st_coordinates(.)[,1]
+# lat = st_coordinates(.)[,2]
 
-# reproject irrigation data
-ga_irrsp <- ga_irr
-coordinates(ga_irrsp) <- ~lon+lat
-proj4string(ga_irrsp) <- proj4string(shpfile)
-ga_irrsp <- spTransform(ga_irrsp,CRS(proj4string(ga12)))
+ga_irrigation <- clipped_hucs %>%
+  left_join(irrigation, by="HUC_10")
 
-# join points to huc12
-huc_sub <- over(ga_irrsp, ga12[,c('HUC_8','HUC_10','HUC_12')])
-
-# add huc12 to data matrix
-ga_irr$huc12 <- as.character(huc_sub$HUC_12)
-ga_irr$huc10 <- as.character(huc_sub$HUC_10)
-ga_irr$huc8 <- as.character(huc_sub$HUC_8)
-
-# plot subset
-ga12_sub <- subset(ga12, HUC_12 %in% huc_sub$HUC_12)
-plot(ga12_sub)
-points(ga_irrsp,pch=20,cex=0.1)
-
-# Add county data ----
-
-# load shapefile and join
-counties <- readOGR(path.expand("data/county_shapefiles"), "cb_2013_us_county_500k")
-county_sub <- over(ga_irrsp,counties[,"GEOID"])
-
-# add county fips to data matrix
-ga_irr$cnty_fips <- as.character(county_sub$GEOID)
-
-# plot subset
-counties <- subset(counties, GEOID %in% county_sub$GEOID)
-plot(counties)
-points(ga_irrsp,pch=20,cex=0.1)
-
-# Aggregate by huc12 and year
-irrigation <- ga_irr %>%
-  ungroup() %>%
-  mutate(lon=ga_irrsp@coords[,1],
-         lat=ga_irrsp@coords[,2])
+st_write(ga_irrigation, "data/ga_irrigation/shapefile/ga_irrigation.shp")
 
 
-write_feather(irrigation,"data/irrigation.feather")
 
-#writeOGR(obj=ga12, dsn=path.expand("data/acf_hucs"), layer="acf_wbd", driver="ESRI Shapefile")
+
 
 
   
