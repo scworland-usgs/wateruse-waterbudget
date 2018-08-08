@@ -28,16 +28,36 @@ cnty_irr <- counties_acf %>%
   dplyr::filter(type=="irrigation") %>%
   dplyr::select(-type)
 
+# plot county irrigation
+ggplot(cnty_irr) +
+  geom_sf(aes(fill=nwis_value)) +
+  coord_sf(datum = NA) +
+  scale_fill_viridis_c() +
+  theme_void()
+
 cnty_huc_irr <- st_interpolate_aw(cnty_irr['nwis_value'],clipped_hucs, extensive=TRUE) %>%
   mutate(HUC_10 = as.character(clipped_hucs$HUC_10)) %>%
   dplyr::select(HUC_10,nwis_value) %>%
   st_set_geometry(NULL)
+
+# plot county ---> huc irrigation
+ggplot(cnty_huc_irr) +
+  geom_sf(aes(fill=nwis_value)) +
+  coord_sf(datum = NA) +
+  scale_fill_viridis_c() +
+  theme_void()
   
 ga_irrigation <- st_read("data/ga_irrigation/shapefile/ga_irrigation.shp") %>%
   dplyr::filter(year=="2010") %>%
   dplyr::select(HUC_10,site_value=mgal) %>%
   left_join(cnty_huc_irr, by='HUC_10') %>%
   gather(type,value,-geometry,-HUC_10)
+
+# plot histogram
+ggplot(ga_irrigation) +
+  geom_histogram(aes(value), color="white", bins=15) +
+  facet_wrap(~type) +
+  theme_bw()
 
 # calculate centroids and values
 centers <- ga_irrigation %>%
@@ -84,6 +104,14 @@ irr_cnty <- st_as_sf(ga_irr2010, coords=c("lon","lat"),crs=irr_crs) %>%
   select(GEOID, nwis_value, site_value) %>%
   gather(type,value,-geometry,-GEOID)
 
+# subset irr_cnty for plot
+ggplot(irr_cnty) +
+  geom_sf(data=counties_acf$geometry) +
+  geom_sf(aes(color=mgal)) +
+  coord_sf(datum = NA) +
+  scale_color_viridis_c() +
+  theme_void()
+
 centers <- irr_cnty %>%
   st_centroid() %>%
   mutate(x = st_coordinates(.)[,1],
@@ -101,6 +129,18 @@ ggplot() +
   theme_bw()
 
 # municipal ---------------------------------------
+
+# plot county data
+cnty_ps <- counties_acf %>%
+  left_join(cnty, by=c("GEOID"="cnty_fips")) %>%
+  filter(type=="municipal") 
+  
+ggplot(cnty_ps) +
+  geom_sf(aes(fill=nwis_value)) +
+  coord_sf(datum = NA) +
+  scale_fill_viridis_c() +
+  theme_void()
+
 # load population raster data
 pop <- velox('data/gridded_pop/clipped_pop.tif')
 
@@ -134,11 +174,18 @@ cnty_huc_ps <- cnty_huc_pop %>%
   group_by(HUC_10) %>%
   dplyr::summarize(nwis_value = sum(nwis_value)) %>%
   st_set_geometry(NULL)
+
+# plot cnty ---> HUC
+ggplot(cnty_huc_ps) +
+  geom_sf(aes(fill=nwis_value)) +
+  coord_sf(datum = NA) +
+  scale_fill_viridis_c() +
+  theme_void()
   
 ga_municipal <- st_read("data/ga_municipal/ga_municipal.shp") %>%
   filter(year==2010) %>%
   dplyr::select(HUC_10,site_value=mgal) %>%
-  left_join(cnty_huc_ps, by='HUC_10') %>%
+  right_join(cnty_huc_ps, by='HUC_10') %>%
   gather(type,value,-geometry,-HUC_10)
 
 centers <- ga_municipal %>%
@@ -211,9 +258,10 @@ value_0313000606 = cnty_thermo$nwis_value[cnty_thermo$cnty_fips=="13321"]
 ga_thermo <- st_read("data/ga_thermo/shapefile/ga_thermo.shp") %>%
   mutate(nwis_value = ifelse(HUC_10 == "0313000801",value_0313000801,
                              ifelse(HUC_10 == "0313000606",value_0313000606,NA)),
-         site_value = mgal_wthrl) %>%
+         site_value_min = mgal_min,
+         site_value_max = mgal_max) %>%
   filter(year==2010) %>%
-  dplyr::select(HUC_10,nwis_value,site_value) %>%
+  dplyr::select(HUC_10,nwis_value,site_value_min,site_value_max) %>%
   gather(type,value,-geometry,-HUC_10)
   
 centers <- ga_thermo %>%
@@ -229,8 +277,10 @@ ggplot() +
   geom_sf(data=ga_thermo, aes(fill=value), color='white',size=0.1) +
   scale_fill_viridis_c("mgal", option='D', labels = scales::comma) +
   geom_text(data=centers, aes(x,y,label=value),color='white',size=2.5) +
-  facet_wrap(~type, ncol=2) +
+  facet_wrap(~type, ncol=3) +
   labs(x="", y="") +
   theme_bw()
   
+# plot all components ---------------------------------------
 
+county_huc_all <- 

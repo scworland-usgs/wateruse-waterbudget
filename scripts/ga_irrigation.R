@@ -58,6 +58,24 @@ ga_irr_sf <- st_as_sf(ga_irr, coords=c("lon","lat"),crs=irr_crs) %>%
   st_transform(crs=st_crs(clipped_hucs)) %>%
   st_intersection(clipped_hucs) 
 
+# plot 2010 points
+ga_irr2010 <- ga_irr_sf %>%
+  filter(year==2010) %>%
+  mutate(depth_in = ifelse(depth_in==-9999,NA,depth_in),
+         mgal = ((1/12*(depth_in)*(acres*43560))*7.48052)/1e6,
+         x = st_coordinates(.)[,1],
+         y = st_coordinates(.)[,2]) %>%
+  group_by(x,y) %>%
+  summarize(mgal = sum(mgal, na.rm=T))
+
+ggplot(ga_irr2010) +
+  geom_sf(data=clipped_hucs$geometry) +
+  geom_sf(aes(color=log10(mgal)),alpha=0.5) +
+  coord_sf(datum = NA) +
+  scale_color_viridis_c() +
+  theme_void()
+  
+
 # clean up and export
 irrigation <- ga_irr_sf %>%
   mutate(depth_in = ifelse(depth_in==-9999,NA,depth_in),
@@ -84,6 +102,13 @@ ga_irrigation <- clipped_hucs %>%
 
 st_write(ga_irrigation, "data/ga_irrigation/shapefile/ga_irrigation.shp")
 
+# plot facets of huc10 irrigation
+ggplot(ga_irrigation) +
+  geom_sf(aes(fill=mgal),alpha=1) +
+  coord_sf(datum = NA) +
+  scale_fill_viridis_c() +
+  facet_wrap(~year, nrow=1) +
+  theme_void()
 
 
 

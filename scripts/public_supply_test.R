@@ -26,6 +26,13 @@ ga_nwis <- read_csv("data/ACF_WaterUse18/data/WU/ga_nwis.csv") %>%
   group_by(GEOID) %>%
   summarize(ga_nwis=sum(mgal))
 
+# load permit data
+ga_permits <- read_csv("data/ACF_WaterUse18/data/WU/ga-permits.csv") %>%
+  select(lat=DEC_LAT_VA,lon=DEC_LONG_VA,type=NAT_WATER_USE_NM,
+         permit=PERMIT_TX) %>%
+  na.omit() %>%
+  st_as_sf(coords=c("lon","lat"),crs=4269)
+
 # join to huc8s
 wbd_nwis <- wbd8 %>%
   left_join(ga_nwis, by="HUC_8")

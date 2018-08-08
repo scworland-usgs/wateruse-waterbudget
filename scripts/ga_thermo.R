@@ -12,7 +12,7 @@ setwd("~/Documents/wu_waterbudget")
 thermo_all <- read.csv("data/ga_thermo/thermo_2010_coefficients.csv", stringsAsFactors = F)
 
 # load clipped hucs
-clipped_hucs <- st_read("data/clipped_hucs/clipped_hucs.shp") 
+clipped_hucs <- st_read("data/clipped_hucs/clipped_hucs.shp")
 
 # find plants in ACF study area
 # thermo_sf <- st_as_sf(thermo_all, coords=c("lon","lat"),crs=st_crs(clipped_hucs)) %>%
@@ -43,7 +43,7 @@ names(eia11) <- names(eia12) <- names(eia08)
 # function to set neg values to zero
 neg2zero <- function(x){ifelse(x<0,0,as.numeric(x))}
 
-# built thermo dataset
+# build thermo dataset
 thermo <- rbind(eia08,eia09,eia10,eia11,eia12) %>%
   dplyr::select(plant_cd="Plant ID",NETGEN_JAN:NETGEN_DEC,
          year=Year,mover="Reported Prime Mover") %>%
@@ -53,11 +53,13 @@ thermo <- rbind(eia08,eia09,eia10,eia11,eia12) %>%
   mutate(netgen = dplyr::select(., NETGEN_JAN:NETGEN_DEC) %>% # sum monthly gen values
            apply(1, sum, na.rm=TRUE)) %>%
   mutate(netgen = netgen*1000) %>% # convert to MWh
-  mutate(mgal_cons=(netgen*c_gkwh)/1e6, # use consumption coefficient 
-         mgal_wthrl=(netgen*w_gkwh)/1e6) %>% # use withdrawal coefficient 
+  mutate(mgal_min=(netgen*w_min_gkwh)/1e6,
+         mgal_mid=(netgen*w_gkwh)/1e6,
+         mgal_max=(netgen*w_max_gkwh)/1e6) %>% # use withdrawal coefficient 
   group_by(plant_cd,year,HUC_10) %>% # group for summary
-  summarize(mgal_cons = sum(mgal_cons), 
-            mgal_wthrl = sum(mgal_wthrl)) %>%
+  summarize(mgal_min = sum(mgal_min),
+            mgal_mid = sum(mgal_mid),
+            mgal_max = sum(mgal_max)) %>%
   ungroup() 
 
 # build dataframe with all years and HUC 10s
@@ -65,13 +67,22 @@ all_thermo <- expand.grid(year=min(thermo$year):max(thermo$year),
                           HUC_10=base::unique(clipped_hucs$HUC_10)) %>%
   left_join(thermo,by=c("year","HUC_10")) 
 
+nwis_thermo <- data.frame(HUC_10 = c("0313000606","0313000801"),
+                          year= c(2010,2010),
+                          nwis_value=c(73,18254))
+
 # plot time series
-ggplot(na.omit(all_thermo), aes(year,mgal_wthrl)) +
-  geom_line() +
-  geom_point() +
-  facet_wrap(~HUC_10, ncol=1, scales="free_y") +
+ggplot(thermo) +
+  geom_errorbar(aes(year,ymin=mgal_min,ymax=mgal_max),width=0.1) +
+  #geom_ribbon(aes(year,ymin=mgal_min,ymax=mgal_max), alpha=0.8) +
+  geom_line(aes(year,mgal_mid), color="dodgerblue") +
+  geom_point(aes(year,mgal_mid), color="dodgerblue", fill="white", shape=21) +
+  geom_point(data=nwis_thermo, aes(year,nwis_value),color="red") +
+  facet_wrap(~HUC_10,ncol=1, scales="free_y") +
   ggtitle('Thermoelectric from 2008-2012',
           subtitle="Each facet represents an individual HUC 10") +
+  labs(y="millions of gallons") +
+  scale_y_log10(labels = scales::comma) +
   theme_bw()
 
 ga_thermo <- clipped_hucs %>%
